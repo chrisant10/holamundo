@@ -17,6 +17,7 @@ jobs:
       TF_BACKEND_BUCKET: tf-state-bucket-holamundo
       TF_STATE_KEY: state/holamundo.tfstate
       TF_LOCK_TABLE: tf-lock-table
+      ECR_REPOSITORY: holamundo-repo
 
     steps:
     - name: Checkout code
@@ -51,26 +52,29 @@ jobs:
       working-directory: ./terraform
       run: terraform destroy -auto-approve
 
-    - name: Clean up ECR images
+    - name: Clean up ECR images (opcional)
       if: always()
       run: |
-        # Get all image digests in the repository
-        IMAGES=$(aws ecr list-images --repository-name holamundo-repo --query 'imageIds[*]' --output json)
-        
-        # Batch delete images (if any exist)
-        if [ "$IMAGES" != "[]" ]; then
-          aws ecr batch-delete-image \
-            --repository-name holamundo-repo \
-            --image-ids "$IMAGES"
+        # Verificar que el repositorio existe antes de intentar limpiar
+        if aws ecr describe-repositories --repository-names $ECR_REPOSITORY >/dev/null 2>&1; then
+          # Get all image digests in the repository
+          IMAGES=$(aws ecr list-images --repository-name $ECR_REPOSITORY --query 'imageIds[*]' --output json)
+          
+          # Batch delete images (if any exist)
+          if [ "$IMAGES" != "[]" ]; then
+            aws ecr batch-delete-image \
+              --repository-name $ECR_REPOSITORY \
+              --image-ids "$IMAGES"
+          fi
+        else
+          echo "ECR repository $ECR_REPOSITORY does not exist, skipping image cleanup"
         fi
 
     - name: Verify destruction
       run: |
         # Verify ECS service is deleted
-        aws ecs describe-services \
-          --cluster holamundo-cluster \
-          --services holamundo-service \
-          --query "services[?status=='ACTIVE']" \
-          --output text | grep -v "ACTIVE" || exit 1
-        
+        if aws ecs describe-clusters --clusters $ECS_CLUSTER --query 'clusters[0].status' --output text | grep -q "ACTIVE"; then
+          echo "Cluster $ECS_CLUSTER still exists or is active"
+          exit 1
+        fi
         echo "Infrastructure successfully destroyed"
