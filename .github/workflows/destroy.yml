@@ -1,0 +1,76 @@
+name: Destroy Infrastructure
+
+on:
+  workflow_dispatch:
+    inputs:
+      confirm-destroy:
+        description: 'Type "destroy" to confirm infrastructure destruction'
+        required: true
+        default: 'cancel'
+
+jobs:
+  destroy-infrastructure:
+    if: github.event.inputs.confirm-destroy == 'destroy'
+    runs-on: ubuntu-latest
+    env:
+      AWS_REGION: us-east-1
+      TF_BACKEND_BUCKET: tf-state-bucket-holamundo
+      TF_STATE_KEY: state/holamundo.tfstate
+      TF_LOCK_TABLE: tf-lock-table
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v3
+
+    - name: Configure AWS credentials
+      uses: aws-actions/configure-aws-credentials@v2
+      with:
+        aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+        aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+        aws-region: ${{ env.AWS_REGION }}
+
+    - name: Setup Terraform
+      uses: hashicorp/setup-terraform@v2
+      with:
+        terraform-version: '1.5.0'
+
+    - name: Terraform Init
+      working-directory: ./terraform
+      run: |
+        terraform init \
+          -backend-config="bucket=$TF_BACKEND_BUCKET" \
+          -backend-config="key=$TF_STATE_KEY" \
+          -backend-config="region=$AWS_REGION" \
+          -backend-config="dynamodb_table=$TF_LOCK_TABLE"
+
+    - name: Terraform Destroy Plan
+      working-directory: ./terraform
+      run: terraform plan -destroy
+
+    - name: Terraform Destroy
+      working-directory: ./terraform
+      run: terraform destroy -auto-approve
+
+    - name: Clean up ECR images
+      if: always()
+      run: |
+        # Get all image digests in the repository
+        IMAGES=$(aws ecr list-images --repository-name holamundo-repo --query 'imageIds[*]' --output json)
+        
+        # Batch delete images (if any exist)
+        if [ "$IMAGES" != "[]" ]; then
+          aws ecr batch-delete-image \
+            --repository-name holamundo-repo \
+            --image-ids "$IMAGES"
+        fi
+
+    - name: Verify destruction
+      run: |
+        # Verify ECS service is deleted
+        aws ecs describe-services \
+          --cluster holamundo-cluster \
+          --services holamundo-service \
+          --query "services[?status=='ACTIVE']" \
+          --output text | grep -v "ACTIVE" || exit 1
+        
+        echo "Infrastructure successfully destroyed"
