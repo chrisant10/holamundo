@@ -107,8 +107,12 @@ jobs:
     - name: Terraform Plan
       working-directory: ./terraform
       run: |
+        # Extraer solo el tag de la URI completa de la imagen
+        IMAGE_URI="${{ needs.build-and-push.outputs.image_uri }}"
+        IMAGE_TAG="${IMAGE_URI##*:}"
+
         terraform plan \
-          -var="image_tag=${{ needs.build-and-push.outputs.image_uri }}" \
+          -var="image_tag=${IMAGE_TAG}" \
           -out=tfplan
 
     - name: Terraform Apply
