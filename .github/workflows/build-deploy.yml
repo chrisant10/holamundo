@@ -85,7 +85,7 @@ jobs:
       with:
         terraform-version: '1.5.0'
 
-    - name: Terraform Init
+    - name: Terraform Init (full)
       working-directory: ./terraform
       run: |
         terraform init \
@@ -101,7 +101,7 @@ jobs:
     - name: Terraform Validate
       working-directory: ./terraform
       run: | 
-        terraform init -backend=false && \ 
+        terraform init -backend=false 
         terraform validate
 
     - name: Terraform Plan
