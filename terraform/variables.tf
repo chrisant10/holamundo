@@ -73,5 +73,5 @@ variable "private_subnet_cidrs" {
 variable "image_tag" {
   description = "Tag of the Docker image to deploy"
   type        = string
-  default     = "latest"  # Valor por defecto opcional
+  default     = "latest"
 }
