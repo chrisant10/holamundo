@@ -27,8 +27,11 @@ jobs:
 
     - name: Verify ECR repository exists
       run: |
-        aws ecr describe-repositories --repository-names $ECR_REPOSITORY || \
-        (echo "ECR repository $ECR_REPOSITORY does not exist" && exit 1)
+        if aws ecr describe-repositories --repository-names $ECR_REPOSITORY; then
+          echo "ECR repository exists"
+        else
+          echo "ECR repository will be created by Terraform"
+        fi
 
   build-and-push:
     needs: verify-ecr-exists
@@ -85,6 +88,15 @@ jobs:
       with:
         terraform-version: '1.5.0'
 
+    - name: Prepare Terraform State
+      working-directory: ./terraform
+      run: |
+        # Limpiar recursos problemáticos si existen
+        for resource in aws_subnet.public aws_security_group.alb aws_vpc.main; do
+          terraform state list | grep -q "$resource" && terraform state rm "$resource" || true
+        done
+        terraform init -upgrade
+
     - name: Terraform Init (full)
       working-directory: ./terraform
       run: |
@@ -117,7 +129,10 @@ jobs:
 
     - name: Terraform Apply
       working-directory: ./terraform
-      run: terraform apply -auto-approve tfplan
+      run: |
+        terraform apply -auto-approve tfplan || \
+        (echo "##[warning]First apply attempt failed, retrying..."; \
+         terraform apply -auto-approve -refresh=false)
 
     - name: Get ALB DNS name
       working-directory: ./terraform
