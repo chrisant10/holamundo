@@ -135,22 +135,38 @@ jobs:
         terraform apply -auto-approve tfplan || \
         (echo "##[warning]First apply attempt failed, retrying..."; \
          terraform apply -auto-approve -refresh=false)
-
+    
     - name: Get ALB DNS name
       working-directory: ./terraform
       id: alb-dns
       run: |
-        # Ejecuta terraform output y filtra solo la salida limpia
-        RAW_OUTPUT=$(terraform output -raw alb_dns_name 2>&1)
-        ALB_DNS=$(echo "$RAW_OUTPUT" | grep -E '^[a-zA-Z0-9.-]+$' | head -1)
-    
-        if [ -z "$ALB_DNS" ]; then
-          echo "##[error]No se pudo obtener ALB DNS"
+        # 1. Verificar que el output existe
+        if ! terraform output alb_dns_name >/dev/null 2>&1; then
+          echo "##[error]El output 'alb_dns_name' no existe en el estado de Terraform"
           exit 1
         fi
+
+        # 2. Obtener el valor con manejo de errores
+        ALB_DNS=$(terraform output -raw alb_dns_name 2>/dev/null || true)
     
-        echo "alb_dns_name=${ALB_DNS}" >> $GITHUB_OUTPUT
-        echo "Application URL: http://${ALB_DNS}"
+        # 3. Validar que no esté vacío
+        if [ -z "$ALB_DNS" ]; then
+          echo "##[error]No se pudo obtener el valor de alb_dns_name"
+          echo "##[debug]Contenido completo del output:"
+          terraform output alb_dns_name
+          exit 1
+        fi
+
+        # 4. Filtrar solo el DNS válido (por si hay mensajes adicionales)
+        CLEAN_DNS=$(echo "$ALB_DNS" | grep -E '^[a-zA-Z0-9.-]+$' | head -1)
+    
+        if [ -z "$CLEAN_DNS" ]; then
+          echo "##[error]El formato del DNS no es válido: $ALB_DNS"
+          exit 1
+        fi
+
+        echo "alb_dns_name=${CLEAN_DNS}" >> $GITHUB_OUTPUT
+        echo "Application URL: http://${CLEAN_DNS}"      
 
     - name: Verify deployment
       run: |
