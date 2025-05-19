@@ -140,9 +140,17 @@ jobs:
       working-directory: ./terraform
       id: alb-dns
       run: |
-        ALB_DNS=$(terraform output -raw alb_dns_name)
-        echo "alb_dns_name=$ALB_DNS" >> $GITHUB_OUTPUT
-        echo "Application URL: http://$ALB_DNS"
+        # Ejecuta terraform output y filtra solo la salida limpia
+        RAW_OUTPUT=$(terraform output -raw alb_dns_name 2>&1)
+        ALB_DNS=$(echo "$RAW_OUTPUT" | grep -E '^[a-zA-Z0-9.-]+$' | head -1)
+    
+        if [ -z "$ALB_DNS" ]; then
+          echo "##[error]No se pudo obtener ALB DNS"
+          exit 1
+        fi
+    
+        echo "alb_dns_name=${ALB_DNS}" >> $GITHUB_OUTPUT
+        echo "Application URL: http://${ALB_DNS}"
 
     - name: Verify deployment
       run: |
